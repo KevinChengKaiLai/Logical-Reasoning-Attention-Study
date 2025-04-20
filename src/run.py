@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     # --- Setup ---
-    model_config_name = f"depth{args.depth}_width{args.width}"
+    model_config_name = f"depth{args.depth}_width{args.width}_epoch{args.epochs}"
     model_save_path = os.path.join(args.output_dir, f"roberta_{model_config_name}_best.pt")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -101,7 +101,8 @@ def main():
             epochs=args.epochs,
             device=device,
             save_path=model_save_path,
-            model_depth=args.depth # Pass the depth used for modification
+            model_depth=args.depth, # Pass the depth used for modification
+            model_width=args.width
         )
         print("\n--- run.py finished ---")
     except Exception as e:

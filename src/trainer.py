@@ -7,8 +7,61 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm # Optional: for progress bars
 import os
 import copy
+import matplotlib.pyplot as plt
 
-def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, device, save_path, model_depth):
+def plot_training_metrics(train_loss_lst, val_loss_lst, train_accuracy_lst, val_accuracy_lst, model_depth,model_width, epochs):
+    """
+    Plots training metrics and saves the figures to specified directories.
+    
+    Args:
+        train_loss_lst (list): Training loss values for each epoch
+        val_loss_lst (list): Validation loss values for each epoch
+        train_accuracy_lst (list): Training accuracy values for each epoch
+        val_accuracy_lst (list): Validation accuracy values for each epoch
+        model_depth (int): The depth (number of layers used) in the model
+        epochs (int): Total number of epochs trained
+    """
+    # Create directory if it doesn't exist
+    os.makedirs("metric", exist_ok=True)
+    
+    # Create x-axis for epochs (starting from 1)
+    epoch_nums = list(range(1, len(train_loss_lst) + 1))
+    
+    # Create figure for loss
+    plt.figure(figsize=(10, 6))
+    plt.plot(epoch_nums, train_loss_lst, 'b-', label='Training Loss')
+    plt.plot(epoch_nums, val_loss_lst, 'r-', label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title(f'Training and Validation Loss (Depth={model_depth},Width={model_width})')
+    plt.legend()
+    plt.grid(True)
+    
+    # Save loss figure
+    loss_filename = f"metric/loss_depth{model_depth}_width_{model_width}_epochs{epochs}.png"
+    plt.savefig(loss_filename)
+    print(f"Loss plot saved to {loss_filename}")
+    plt.close()
+    
+    # Create figure for accuracy
+    plt.figure(figsize=(10, 6))
+    plt.plot(epoch_nums, train_accuracy_lst, 'b-', label='Training Accuracy')
+    plt.plot(epoch_nums, val_accuracy_lst, 'r-', label='Validation Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.title(f'Training and Validation Accuracy (Depth={model_depth},Width={model_width})')
+    plt.legend()
+    plt.grid(True)
+    plt.ylim(0, 1)  # Accuracy is between 0 and 1
+    
+    # Save accuracy figure
+    accuracy_filename = f"metric/accuracy_depth{model_depth}_width_{model_width}_epochs{epochs}.png"
+    plt.savefig(accuracy_filename)
+    print(f"Accuracy plot saved to {accuracy_filename}")
+    plt.close()
+
+
+def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, device, save_path, model_depth,model_width):
     """
     Trains and evaluates a modified RoBERTa model for the ReClor task.
 
@@ -75,13 +128,21 @@ def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, 
     # --- Training Loop ---
     best_val_accuracy = -1.0
     best_model_state = None
-
+    
+    # make list for metric plotting
+    train_loss_lst = []
+    val_loss_lst = []
+    train_accuracy_lst = []
+    val_accuracy_lst = []
+    
     for epoch in range(epochs):
         print(f"\n--- Epoch {epoch+1}/{epochs} ---")
 
         # Training phase
         model.train()
         total_train_loss = 0
+        correct_predictions = 0
+        total_predictions = 0
         train_iterator = tqdm(train_dataloader, desc=f"Epoch {epoch+1} Training") # Optional progress bar
 
         for batch in train_iterator:
@@ -106,6 +167,10 @@ def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, 
             loss = outputs.loss
             total_train_loss += loss.item()
 
+            logits = outputs.logits # Shape: [batch_size, num_choices]
+            predictions = torch.argmax(logits, dim=-1) # Get predicted choice index
+            correct_predictions += (predictions == labels).sum().item()
+            total_predictions += labels.size(0)
             # Backward pass and optimization
             loss.backward()
             optimizer.step()
@@ -114,7 +179,13 @@ def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, 
             train_iterator.set_postfix({'loss': loss.item()})
 
         avg_train_loss = total_train_loss / len(train_dataloader)
-        print(f"Average Training Loss: {avg_train_loss:.4f}")
+        train_accuracy = correct_predictions / total_predictions
+        
+        train_loss_lst.append(avg_train_loss)
+        train_accuracy_lst.append(train_accuracy)
+        
+        print(f"Average Training Loss: {avg_train_loss:.3f}")
+        print(f"Train Accuracy: {train_accuracy:.4f}")
 
         # Validation phase
         model.eval()
@@ -147,6 +218,10 @@ def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, 
 
         avg_val_loss = total_val_loss / len(val_dataloader)
         val_accuracy = correct_predictions / total_predictions
+        
+        val_loss_lst.append(avg_val_loss)
+        val_accuracy_lst.append(val_accuracy)
+        
         print(f"Average Validation Loss: {avg_val_loss:.4f}")
         print(f"Validation Accuracy: {val_accuracy:.4f}")
 
@@ -168,62 +243,18 @@ def train_model(model, train_dataloader, val_dataloader, learning_rate, epochs, 
     else:
         print("\n--- Training Finished ---")
         print("No best model state was saved (validation may not have improved).")
+        
+    # Plot training metrics after training is complete
+    print("\n--- Plotting Training Metrics ---")
+    plot_training_metrics(
+        train_loss_lst, 
+        val_loss_lst, 
+        train_accuracy_lst, 
+        val_accuracy_lst, 
+        model_depth, 
+        model_width,
+        epochs
+    )
+    print("\n--- Finished Plotting Training Metrics ---")
 
-# --- Example Skeleton for how to use the trainer ---
-if __name__ == '__main__':
-    # This block is for demonstration; you'd typically call train_model
-    # from your main experiment script.
 
-    # 1. Define Hyperparameters (replace with your actual values)
-    LEARNING_RATE = 1e-5 # Example value
-    EPOCHS = 3          # Example value
-    BATCH_SIZE = 8      # Example value
-    MODEL_NAME = 'roberta-base'
-    # --- Specify the configuration you are training ---
-    DEPTH = 1           # Example value (must match the model being loaded/modified)
-    WIDTH = 12          # Example value (must match the model being loaded/modified)
-    # --- ---
-    SAVE_DIR = "saved_models"
-    MODEL_SAVE_PATH = os.path.join(SAVE_DIR, f"roberta_depth{DEPTH}_width{WIDTH}_best.pt")
-
-    # 2. Setup Device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # 3. Load DataLoaders (replace with your actual loading logic)
-    # You need to use dataset.py and load_data function here
-    # Example placeholder:
-    print("Placeholder: Load your train_dataloader and val_dataloader here.")
-    # from dataset import ReclorDataset, load_data
-    # from transformers import AutoTokenizer
-    # tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    # train_dataset = ReclorDataset(data_path='path/to/train.json', tokenizer=tokenizer)
-    # val_dataset = ReclorDataset(data_path='path/to/val.json', tokenizer=tokenizer)
-    # train_loader = load_data(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    # val_loader = load_data(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    train_loader = None # Replace with actual loader
-    val_loader = None   # Replace with actual loader
-
-    # 4. Load and Modify Model (replace with your actual loading logic)
-    print("Placeholder: Load base model and modify it here.")
-    # from load_PTmodel import load_roberta_for_multiple_choice
-    # from modify_model import modify_roberta_attention
-    # base_model = load_roberta_for_multiple_choice(MODEL_NAME)
-    # modified_model = modify_roberta_attention(base_model, depth=DEPTH, width=WIDTH)
-    modified_model = None # Replace with actual model
-
-    # 5. Run Training
-    if modified_model and train_loader and val_loader:
-         print("\nStarting trainer function...")
-         # train_model(
-         #     model=modified_model,
-         #     train_dataloader=train_loader,
-         #     val_dataloader=val_loader,
-         #     learning_rate=LEARNING_RATE,
-         #     epochs=EPOCHS,
-         #     device=device,
-         #     save_path=MODEL_SAVE_PATH,
-         #     model_depth=DEPTH # Pass the depth used for modification
-         # )
-         print("Example complete. Uncomment and fill placeholders to run.")
-    else:
-        print("Skipping train_model call because model or dataloaders are not defined in example.")
